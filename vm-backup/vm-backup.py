@@ -14,17 +14,29 @@ import sys
 import subprocess
 import datetime
 import socket
-config = 0
-def send_mail(subject,message):
+import smtplib
+from email.mime.multipart import MIMEMultipart
+config = ""
+hostname = ""
+name = ""
 
 def read_config():
 	global config
 	try:
 		config = configparser.ConfigParser()
-		config.read('config')
+		config.read('vm-backup.ini')
 	except:
 		print('BACKUP FAILED: COULD NOT ACCESS CONFIG FILE')
 		sys.exit()
+
+def send_mail(subject,message):
+	email= MIMEMultipart()
+	email['subject'] = subject
+	email['message'] = message
+	mail = smtplib.SMTP(host=config['emailserver'],port=config['emailport'])
+	mail.login(config['emailuser'],config['emailpassword'], intial_response_ok=True)
+	mail.send_message(email,from_addr=config['emailuser'],to_addr=config['emaildest'])
+
 
 #remove last snapshot
 #make a standalone version of this for freenas box but retain snapshots up to a month old
@@ -51,7 +63,7 @@ def clean_snapshots(hostname, name):
 
 #pools will be hostnames
 def take_snapshot():
-	hostname = socket.gethostname()
+	global	name
 	now = str(datetime.datetime.now())
 	now = now.replace(' ','#')
 	name = '{hostname}@backup{now}'.format(hostname=hostname,now=now)
@@ -60,11 +72,9 @@ def take_snapshot():
 	#returns bytes so use decode() method to get strings
 	out, err = clean_output(proc.stout,proc.stderr)
 	error_check(err,hostname)
-	return name , hostname ,now
 
 
-def send_snapshot(name):
-	hostpool = config['hostpool']+name
+def send_snapshot():
 	remotepool = config['remotepool']
 	remotehost = config['remotehost']
 	remoteuser = config['remoteuser']
@@ -76,13 +86,19 @@ def send_snapshot(name):
 	error_check(err)
 
 
-	
 
 def main():
-	read_config()
-	name, hostname, now = take_snapshot()
-	send_snapshot(name, hostname,now)
-	clean_snapshots(hostname,name)
-	send_mail
+	global hostname
+	hostname = socket.gethostname()
+	try:
+		read_config()
+		take_snapshot()
+		send_snapshot()
+		clean_snapshots()
+		send_mail('{hostname} completed backup succesfully'.format(hostname=hostname),'')
+	except FileNotFoundError:
+		print('zfs not found on system')
+		send_mail('zfs not found on {hostname}'.format(hostname=hostname),'')
 
 
+main()
